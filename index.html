@@ -41,15 +41,6 @@
   const RECORDS = [
     { date: '2026-03-21', amount: 600 },
     { date: '2026-05-20', amount: 900 },
-      { date: "2026-05-24", amount: 600 },
-      { date: "2026-05-24", amount: 10 },
-      { date: "2026-05-24", amount: 200 },
-      { date: "2026-05-24", amount: 10 },
-      { date: "2026-05-24", amount: 6 },
-      { date: "2026-05-24", amount: 5 },
-      { date: "2026-05-24", amount: 1 },
-      { date: "2026-05-24", amount: 50 },
-      { date: "2026-05-24", amount: 20 },
   /* __RECORDS_MARKER__ */
   ];
 
@@ -408,10 +399,21 @@
       const div = document.createElement('div');
       div.className = 'image-item';
 
-      const commitMsg = item.sha ? '' : '';
+      // 从文件名提取时间戳，格式化为日期时间
+      const tsMatch = item.name.match(/^(\d+)/);
+      let displayName = item.name;
+      if (tsMatch) {
+        const ts = parseInt(tsMatch[1]);
+        if (!isNaN(ts) && String(ts).length >= 10) {
+          const d = new Date(ts);
+          const pad = n => String(n).padStart(2, '0');
+          displayName = `${d.getFullYear()}年${pad(d.getMonth()+1)}月${pad(d.getDate())}日${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+      }
+
       div.innerHTML = `
         <span class="img-icon">🖼</span>
-        <span class="img-name">${escapeHtml(item.name)}</span>
+        <span class="img-name">${escapeHtml(displayName)}</span>
       `;
 
       div.addEventListener('click', () => openPreview(item.name));
@@ -492,7 +494,10 @@
     try {
       const savedName = await uploadImageToRepo(file);
       uploadStatus.className = 'upload-status success';
-      uploadStatus.textContent = `✅ 上传成功：${savedName}`;
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const timeStr = `${now.getFullYear()}年${pad(now.getMonth()+1)}月${pad(now.getDate())}日${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      uploadStatus.textContent = `✅ 上传成功：${timeStr}`;
       fileInput.value = '';
       loadImages();
     } catch (err) {
