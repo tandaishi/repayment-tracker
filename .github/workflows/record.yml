@@ -30,18 +30,22 @@ jobs:
       - name: Append record to index.html
         run: |
           python3 << 'PYEOF'
-          import os, json
+          import os, json, math
 
           amount = float(os.environ.get('INPUT_AMOUNT', '0'))
           date = os.environ.get('INPUT_DATE', '')
           image = os.environ.get('INPUT_IMAGE', '')
 
-          # Build the new record line
-          record_parts = [f'    {{ date: {json.dumps(date)}, amount: {amount} }']
+          # Format amount nicely (100 → 100, 100.5 → 100.5)
+          amount_str = str(int(amount)) if amount == int(amount) else str(amount)
+          date_str = json.dumps(date)
+
+          parts = [f'    {{ date: {date_str}, amount: {amount_str}']
           if image:
-              record_parts.append(f', image: {json.dumps(image)} ')
-          record_parts.append('},')
-          new_line = ''.join(record_parts)
+              parts.append(f', image: {json.dumps(image)}')
+          parts.append(' },')
+
+          new_line = ''.join(parts)
 
           with open('index.html', 'r') as f:
               content = f.read()
