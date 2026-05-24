@@ -458,12 +458,8 @@
       // 触发 Action
       await triggerRecordAction(amount, today, '');
       statusMsg.className = 'success';
-      statusMsg.textContent = '✅ 已提交，稍等 30~60 秒后刷新页面可看到结果';
-
-      // 本地即时展示
-      RECORDS.push({ date: today, amount });
+      statusMsg.textContent = '✅ 提交成功，稍后刷新页面可看到结果';
       amountInput.value = '';
-      refresh();
     } catch (err) {
       statusMsg.className = 'error';
       statusMsg.textContent = `❌ 提交失败：${err.message}`;
