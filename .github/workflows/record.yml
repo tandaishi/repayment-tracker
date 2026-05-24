@@ -11,10 +11,6 @@ on:
         description: '还款日期 (YYYY-MM-DD)'
         required: true
         type: string
-      image_filename:
-        description: '关联的截图文件名（可选）'
-        required: false
-        type: string
 
 permissions:
   contents: write
@@ -34,18 +30,12 @@ jobs:
 
           amount = float(os.environ.get('INPUT_AMOUNT', '0'))
           date = os.environ.get('INPUT_DATE', '')
-          image = os.environ.get('INPUT_IMAGE', '')
 
           # Format amount nicely (100 → 100, 100.5 → 100.5)
           amount_str = str(int(amount)) if amount == int(amount) else str(amount)
           date_str = json.dumps(date)
 
-          parts = [f'    {{ date: {date_str}, amount: {amount_str}']
-          if image:
-              parts.append(f', image: {json.dumps(image)}')
-          parts.append(' },')
-
-          new_line = ''.join(parts)
+          new_line = f'    {{ date: {date_str}, amount: {amount_str} },'
 
           with open('index.html', 'r') as f:
               content = f.read()
@@ -55,12 +45,11 @@ jobs:
           with open('index.html', 'w') as f:
               f.write(content)
 
-          print(f'Added record: {date} amount={amount} image={image or "none"}')
+          print(f'Added record: {date} amount={amount}')
           PYEOF
         env:
           INPUT_AMOUNT: ${{ github.event.inputs.amount }}
           INPUT_DATE: ${{ github.event.inputs.date }}
-          INPUT_IMAGE: ${{ github.event.inputs.image_filename }}
 
       - name: Commit and push
         run: |
