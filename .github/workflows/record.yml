@@ -38,7 +38,7 @@ jobs:
           amount_str = str(int(amount)) if amount == int(amount) else str(amount)
           date_str = json.dumps(date)
 
-          new_line = f'    {{ date: {date_str}, amount: {amount_str} },'
+          new_line = f'    {{ date: {date_str}, amount: {amount_str} }},'
 
           with open('index.html', 'r') as f:
               content = f.read()
