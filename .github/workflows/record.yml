@@ -1,0 +1,84 @@
+name: Add Repayment Record
+
+on:
+  workflow_dispatch:
+    inputs:
+      amount:
+        description: '还款金额'
+        required: true
+        type: string
+      date:
+        description: '还款日期 (YYYY-MM-DD)'
+        required: true
+        type: string
+      image_filename:
+        description: '关联的截图文件名（可选）'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Append record to index.html
+        run: |
+          python3 << 'PYEOF'
+          import os, json
+
+          amount = float(os.environ.get('INPUT_AMOUNT', '0'))
+          date = os.environ.get('INPUT_DATE', '')
+          image = os.environ.get('INPUT_IMAGE', '')
+
+          # Build the new record line
+          record_parts = [f'    {{ date: {json.dumps(date)}, amount: {amount} }']
+          if image:
+              record_parts.append(f', image: {json.dumps(image)} ')
+          record_parts.append('},')
+          new_line = ''.join(record_parts)
+
+          with open('index.html', 'r') as f:
+              content = f.read()
+
+          content = content.replace('/* __RECORDS_MARKER__ */', f'{new_line}\n  /* __RECORDS_MARKER__ */')
+
+          with open('index.html', 'w') as f:
+              f.write(content)
+
+          print(f'Added record: {date} amount={amount} image={image or "none"}')
+          PYEOF
+        env:
+          INPUT_AMOUNT: ${{ github.event.inputs.amount }}
+          INPUT_DATE: ${{ github.event.inputs.date }}
+          INPUT_IMAGE: ${{ github.event.inputs.image_filename }}
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || (
+            git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
+            git commit -m "Add repayment: ${{ github.event.inputs.date }} ¥${{ github.event.inputs.amount }}"
+            git push
+          )
+
+      - name: Inject PAT for deployment
+        run: sed -i "s|__PAT__|${{ secrets.PAT }}|g" index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

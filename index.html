@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>repayment-tracker</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* 额外样式：状态提示 */
+    #statusMsg {
+      margin-top: 8px;
+      font-size: 13px;
+      min-height: 20px;
+    }
+    #statusMsg.loading { color: #007aff; }
+    #statusMsg.success { color: #34c759; }
+    #statusMsg.error { color: #ff3b30; }
+
+    .upload-status.loading { color: #007aff; }
+    .record-image-link {
+      color: #007aff;
+      text-decoration: none;
+      font-size: 13px;
+      margin-left: 4px;
+    }
+    .record-image-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <!-- ─── 内嵌数据 ──────────────────────────────── -->
+
+  <script>
+  // ============================================================
+  // 配置（修改需提交代码）
+  // ============================================================
+  const CONFIG = {
+    total_debt: 10000,
+    daily_amount: 10,
+    deadline: '2028-12-26',
+  };
+
+  // ============================================================
+  // 还款记录（Action 自动追加到此数组末尾）
+  // ============================================================
+  const RECORDS = [
+    { date: '2026-03-21', amount: 600 },
+    { date: '2026-05-20', amount: 900 },
+  /* __RECORDS_MARKER__ */
+  ];
+
+  // ============================================================
+  // GitHub 配置（部署时注入）
+  // ============================================================
+  const OWNER = 'tandaishi';
+  const REPO  = 'repayment-tracker';
+  const PAT   = '__PAT__';
+  const RAW   = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main`;
+  </script>
+
+  <!-- ─── HTML 结构 ─────────────────────────────── -->
+
+  <div class="container">
+
+    <!-- a. 金额输入区 -->
+    <div class="section">
+      <label class="label" for="amountInput">输入还款金额（按回车添加）：</label>
+      <input
+        type="number"
+        id="amountInput"
+        class="input"
+        placeholder=""
+        step="0.01"
+        min="0.01"
+        autofocus
+      >
+      <div id="statusMsg"></div>
+    </div>
+
+    <!-- b. 历史还款记录 -->
+    <div class="section table-section">
+      <div class="label">历史还款记录：</div>
+      <table id="recordTable" class="table">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>金额（元）</th>
+            <th>截图</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="emptyHint" class="empty-hint">暂无还款记录</div>
+    </div>
+
+    <!-- c. 页脚统计 -->
+    <div class="footer">
+      <div class="stat-row">
+        <span class="stat-label">下次还款日：</span>
+        <span id="nextDate" class="stat-value">--</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">还款总额：</span>
+        <span id="totalRepaid" class="stat-value">--</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">剩余待还：</span>
+        <span id="remaining" class="stat-value">--</span>
+      </div>
+      <div class="progress-section">
+        <div class="stat-label">还款进度：</div>
+        <div class="progress-bar">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+        <span id="progressText" class="progress-text">0%</span>
+      </div>
+    </div>
+
+    <!-- d. 附件上传 -->
+    <div class="section upload-section">
+      <div class="label">还款截图附件：</div>
+      <div class="upload-row">
+        <input type="file" id="fileInput" accept="image/*" class="file-input">
+        <button id="uploadBtn" class="btn btn-upload">上传</button>
+      </div>
+      <div id="uploadStatus" class="upload-status"></div>
+    </div>
+
+    <!-- e. 附件列表 -->
+    <div class="section gallery-section">
+      <div class="label">已上传的截图：</div>
+      <div id="imageList" class="image-list">
+        <div class="empty-hint">暂无附件</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 逾期提示弹窗 -->
+  <div id="overdueModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-icon">⚠️</div>
+      <div class="modal-title">逾期提醒</div>
+      <div class="modal-body">当前还款进度落后于预期，请及时还款以避免逾期！</div>
+      <button id="modalClose" class="btn">知道了</button>
+    </div>
+  </div>
+
+  <!-- 图片预览弹窗 -->
+  <div id="imagePreviewModal" class="modal hidden">
+    <div class="modal-content image-preview-content">
+      <div class="preview-header">
+        <span id="previewFilename" class="preview-filename"></span>
+        <button id="previewClose" class="btn-close">&times;</button>
+      </div>
+      <div class="preview-body">
+        <img id="previewImg" class="preview-img" alt="预览">
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 前端逻辑 ──────────────────────────────── -->
+
+  <script>
+  // ============================================================
+  // DOM 引用
+  // ============================================================
+
+  const amountInput = document.getElementById('amountInput');
+  const statusMsg   = document.getElementById('statusMsg');
+  const recordTable = document.getElementById('recordTable');
+  const tableBody   = recordTable.querySelector('tbody');
+  const emptyHint   = document.getElementById('emptyHint');
+  const nextDateEl  = document.getElementById('nextDate');
+  const totalRepaidEl = document.getElementById('totalRepaid');
+  const remainingEl = document.getElementById('remaining');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const overdueModal = document.getElementById('overdueModal');
+  const modalClose  = document.getElementById('modalClose');
+
+  const fileInput     = document.getElementById('fileInput');
+  const uploadBtn     = document.getElementById('uploadBtn');
+  const uploadStatus  = document.getElementById('uploadStatus');
+  const imageList     = document.getElementById('imageList');
+  const imagePreviewModal = document.getElementById('imagePreviewModal');
+  const previewImg    = document.getElementById('previewImg');
+  const previewFilename = document.getElementById('previewFilename');
+  const previewClose  = document.getElementById('previewClose');
+
+  // ============================================================
+  // 工具函数
+  // ============================================================
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function todayISO() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function parseDate(str) {
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  function daysBetween(a, b) {
+    return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  function totalRepaid() {
+    return RECORDS.reduce((sum, r) => sum + (r.amount || 0), 0);
+  }
+
+  function remaining() {
+    return CONFIG.total_debt - totalRepaid();
+  }
+
+  function isOverdue() {
+    const today = parseDate(todayISO());
+    const deadline = parseDate(CONFIG.deadline);
+    const daysRemaining = Math.max(0, daysBetween(deadline, today));
+    const expectedRemaining = daysRemaining * CONFIG.daily_amount;
+    return remaining() >= expectedRemaining + CONFIG.daily_amount;
+  }
+
+  function nextRepaymentDate() {
+    const rem = remaining();
+    if (rem <= 0) return '已还清';
+    const daysNeeded = Math.ceil(rem / CONFIG.daily_amount);
+    const next = new Date(parseDate(CONFIG.deadline));
+    next.setDate(next.getDate() - daysNeeded);
+    const today = parseDate(todayISO());
+    if (next < today) return todayISO();
+    const y = next.getFullYear();
+    const m = String(next.getMonth() + 1).padStart(2, '0');
+    const d = String(next.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function progress() {
+    if (CONFIG.total_debt <= 0) return 100;
+    return Math.min((totalRepaid() / CONFIG.total_debt) * 100, 100);
+  }
+
+  // ============================================================
+  // 渲染
+  // ============================================================
+
+  function renderTable() {
+    tableBody.innerHTML = '';
+
+    if (RECORDS.length === 0) {
+      emptyHint.classList.remove('hidden');
+      return;
+    }
+
+    emptyHint.classList.add('hidden');
+
+    // 按日期升序
+    const sorted = [...RECORDS].sort((a, b) => a.date.localeCompare(b.date));
+
+    for (const r of sorted) {
+      const tr = document.createElement('tr');
+
+      let imageCell = '<span style="color:#ccc">--</span>';
+      if (r.image) {
+        imageCell = `<a class="record-image-link" href="#" onclick="openPreview('${escapeHtml(r.image)}');return false">🖼 查看</a>`;
+      }
+
+      tr.innerHTML = `
+        <td>${escapeHtml(r.date)}</td>
+        <td>${r.amount.toFixed(2)}</td>
+        <td>${imageCell}</td>
+      `;
+      tableBody.appendChild(tr);
+    }
+  }
+
+  function renderFooter() {
+    nextDateEl.textContent = nextRepaymentDate();
+    totalRepaidEl.textContent = `${totalRepaid().toFixed(2)} 元`;
+
+    const rem = remaining();
+    if (rem < 0) {
+      remainingEl.textContent = `0.00 元（已超额还款 ${(-rem).toFixed(2)} 元）`;
+    } else {
+      remainingEl.textContent = `${rem.toFixed(2)} 元`;
+    }
+
+    const pct = Math.round(progress());
+    progressFill.style.width = `${pct}%`;
+    progressText.textContent = `${pct}%`;
+  }
+
+  function refresh() {
+    renderTable();
+    renderFooter();
+  }
+
+  // ============================================================
+  // 触发 GitHub Action（添加还款记录）
+  // ============================================================
+
+  async function triggerRecordAction(amount, date, imageFilename) {
+    const url = `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/record.yml/dispatches`;
+    const body = { ref: 'main', inputs: { amount: String(amount), date } };
+    if (imageFilename) body.inputs.image_filename = imageFilename;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${PAT}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`GitHub API ${res.status}: ${t}`);
+    }
+  }
+
+  // ============================================================
+  // 图片上传到 GitHub 仓库
+  // ============================================================
+
+  async function uploadImageToRepo(file) {
+    // 读取文件 → base64
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binary);
+
+    // 生成唯一文件名
+    const ts = Date.now();
+    const rand = Math.random().toString(36).slice(2, 6);
+    const ext = file.name.split('.').pop() || 'png';
+    const filename = `${ts}-${rand}.${ext}`;
+
+    const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/imgHistory/${filename}`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${PAT}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: `Upload image: ${file.name}`,
+        content: base64,
+        branch: 'main',
+      }),
+    });
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`上传图片失败 (${res.status}): ${t}`);
+    }
+
+    // 小延迟等 GitHub 处理好
+    await new Promise(r => setTimeout(r, 2000));
+    return filename;
+  }
+
+  // ============================================================
+  // 图片列表
+  // ============================================================
+
+  async function loadImages() {
+    try {
+      const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/imgHistory`;
+      const res = await fetch(url, {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': `Bearer ${PAT}`,
+        },
+      });
+      if (!res.ok) return;
+      const files = await res.json();
+      if (!Array.isArray(files)) return;
+
+      renderImageList(files);
+    } catch (_) { /* 静默 */ }
+  }
+
+  function renderImageList(files) {
+    imageList.innerHTML = '';
+    if (files.length === 0) {
+      imageList.innerHTML = '<div class="empty-hint">暂无附件</div>';
+      return;
+    }
+
+    // 按 name 倒序（最新的在前）
+    files.sort((a, b) => b.name.localeCompare(a.name));
+
+    for (const item of files) {
+      // 只显示图片文件
+      if (!/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(item.name)) continue;
+
+      const div = document.createElement('div');
+      div.className = 'image-item';
+
+      const commitMsg = item.sha ? '' : '';
+      div.innerHTML = `
+        <span class="img-icon">🖼</span>
+        <span class="img-name">${escapeHtml(item.name)}</span>
+      `;
+
+      div.addEventListener('click', () => openPreview(item.name));
+      imageList.appendChild(div);
+    }
+  }
+
+  // ============================================================
+  // 图片预览
+  // ============================================================
+
+  function openPreview(filename) {
+    previewImg.src = `${RAW}/imgHistory/${encodeURIComponent(filename)}`;
+    previewFilename.textContent = filename;
+    imagePreviewModal.classList.remove('hidden');
+  }
+
+  function closePreview() {
+    imagePreviewModal.classList.add('hidden');
+    setTimeout(() => { previewImg.src = ''; }, 300);
+  }
+
+  // ============================================================
+  // 事件绑定
+  // ============================================================
+
+  // 按回车 → 提交还款
+  amountInput.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+
+    const raw = amountInput.value.trim();
+    if (!raw) return;
+
+    const amount = parseFloat(raw);
+    if (isNaN(amount) || amount <= 0) return;
+
+    // 拿到日期
+    const today = todayISO();
+
+    // 禁用输入
+    amountInput.disabled = true;
+    statusMsg.className = 'loading';
+    statusMsg.textContent = '⏳ 正在提交还款记录...';
+
+    try {
+      // 触发 Action
+      await triggerRecordAction(amount, today, '');
+      statusMsg.className = 'success';
+      statusMsg.textContent = '✅ 已提交，稍等 30~60 秒后刷新页面可看到结果';
+
+      // 本地即时展示
+      RECORDS.push({ date: today, amount });
+      amountInput.value = '';
+      refresh();
+    } catch (err) {
+      statusMsg.className = 'error';
+      statusMsg.textContent = `❌ 提交失败：${err.message}`;
+    } finally {
+      amountInput.disabled = false;
+      amountInput.focus();
+    }
+  });
+
+  // 上传图片
+  async function handleUpload() {
+    const file = fileInput.files[0];
+    if (!file) {
+      uploadStatus.className = 'upload-status error';
+      uploadStatus.textContent = '请先选择一张图片';
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      uploadStatus.className = 'upload-status error';
+      uploadStatus.textContent = '仅支持图片文件';
+      return;
+    }
+
+    const amount = parseFloat(amountInput.value.trim());
+    if (isNaN(amount) || amount <= 0) {
+      uploadStatus.className = 'upload-status error';
+      uploadStatus.textContent = '请先在金额框输入本次还款金额';
+      return;
+    }
+
+    uploadStatus.className = 'upload-status loading';
+    uploadStatus.textContent = '⏳ 正在上传图片...';
+    uploadBtn.disabled = true;
+
+    try {
+      // 1. 上传图片到仓库
+      const savedName = await uploadImageToRepo(file);
+      uploadStatus.textContent = '⏳ 图片已上传，正在提交记录...';
+
+      // 2. 触发 Action（含图片文件名）
+      const today = todayISO();
+      await triggerRecordAction(amount, today, savedName);
+
+      uploadStatus.className = 'upload-status success';
+      uploadStatus.textContent = `✅ 已提交（含截图），稍等刷新可见`;
+      fileInput.value = '';
+      amountInput.value = '';
+
+      // 3. 本地展示
+      RECORDS.push({ date: today, amount, image: savedName });
+      refresh();
+      loadImages();
+    } catch (err) {
+      uploadStatus.className = 'upload-status error';
+      uploadStatus.textContent = `❌ ${err.message}`;
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  }
+
+  uploadBtn.addEventListener('click', handleUpload);
+
+  // 文件选择后回车触发上传
+  fileInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleUpload();
+  });
+
+  // 逾期弹窗
+  modalClose.addEventListener('click', () => {
+    overdueModal.classList.add('hidden');
+  });
+  overdueModal.addEventListener('click', (e) => {
+    if (e.target === overdueModal) overdueModal.classList.add('hidden');
+  });
+
+  // 预览弹窗
+  previewClose.addEventListener('click', closePreview);
+  imagePreviewModal.addEventListener('click', (e) => {
+    if (e.target === imagePreviewModal) closePreview();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !imagePreviewModal.classList.contains('hidden')) {
+      closePreview();
+    }
+  });
+
+  // ============================================================
+  // 启动
+  // ============================================================
+
+  refresh();
+  if (isOverdue()) overdueModal.classList.remove('hidden');
+  loadImages();
+  </script>
+</body>
+</html>
