@@ -69,11 +69,8 @@ body {
 /* ===== 表格区 ===== */
 
 .table-section {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .table {
@@ -106,7 +103,6 @@ body {
 }
 
 .table tbody {
-  display: block;
   overflow-y: auto;
 }
 
